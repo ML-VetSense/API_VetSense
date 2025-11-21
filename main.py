@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from xgboost import XGBClassifier
 from PIL import Image
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -40,10 +41,15 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ----------------------------------------------------------
 #MODEL_TABULAR_PATH = "../models/best_model_tabular.pth"
 #MODEL_TABULAR_PATH = "../models/xgboost_model.pkl"
-MODEL_TABULAR_PATH = "../models/the_xgboost_bundle.pkl"
-SCALER_PATH = "../models/the_scaler.pkl"
-ENCODERS_PATH = "../models/the_label_encoders.pkl"
-MODEL_IMAGE_PATH = "../models/best_efficientnet_model_b.pth"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+#MODEL_TABULAR_PATH = "../models/the_xgboost_bundle.pkl"
+MODEL_TABULAR_PATH = os.path.join(BASE_DIR, "models", "the_xgboost_bundle.pkl")
+# SCALER_PATH = "../models/the_scaler.pkl"
+SCALER_PATH = os.path.join(BASE_DIR, "models", "the_scaler.pkl")
+# ENCODERS_PATH = "../models/the_label_encoders.pkl"
+ENCODERS_PATH = os.path.join(BASE_DIR, "models", "the_label_encoders.pkl")
+# MODEL_IMAGE_PATH = "../models/best_efficientnet_model_b.pth"
+MODEL_IMAGE_PATH = os.path.join(BASE_DIR, "models", "best_efficientnet_model_b.pth")
 
 # === Imagen (EfficientNet-B0 modificado) ===
 num_classes_full = 19
