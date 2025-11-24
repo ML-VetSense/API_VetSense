@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from xgboost import XGBClassifier
 from PIL import Image
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -38,13 +39,19 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ----------------------------------------------------------
 # CARGA DE MODELOS
 # ----------------------------------------------------------
-MODEL_TABULAR_PATH = "../models/the_xgboost_bundle.pkl"
-MODEL_IMAGE_PATH = "../models/best_efficientnet_model_b.pth"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# MODEL_TABULAR_PATH = "../models/the_xgboost_bundle.pkl"
+MODEL_TABULAR_PATH = os.path.join(BASE_DIR, "models", "the_xgboost_bundle.pkl")
+# MODEL_IMAGE_PATH = "../models/best_efficientnet_model_b.pth"
+MODEL_IMAGE_PATH = os.path.join(BASE_DIR, "models", "best_efficientnet_model_b.pth")
 
 # ----------------------------------------------------------
 # MODELO DOG vs CAT
 # ----------------------------------------------------------
-MODEL_DOGCAT_PATH = "../models/modelo_pesos.pth"
+# MODEL_DOGCAT_PATH = "../models/modelo_pesos.pth"
+MODEL_DOGCAT_PATH = os.path.join(BASE_DIR, "models", "modelo_pesos.pth")
 
 # Transformación usada en test (sin augmentations)
 dogcat_transform = transforms.Compose([
