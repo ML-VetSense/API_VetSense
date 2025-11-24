@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from typing import List, Optional
 from xgboost import XGBClassifier
 from PIL import Image
-import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -39,17 +38,72 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ----------------------------------------------------------
 # CARGA DE MODELOS
 # ----------------------------------------------------------
-#MODEL_TABULAR_PATH = "../models/best_model_tabular.pth"
-#MODEL_TABULAR_PATH = "../models/xgboost_model.pkl"
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-#MODEL_TABULAR_PATH = "../models/the_xgboost_bundle.pkl"
-MODEL_TABULAR_PATH = os.path.join(BASE_DIR, "models", "the_xgboost_bundle.pkl")
-# SCALER_PATH = "../models/the_scaler.pkl"
-SCALER_PATH = os.path.join(BASE_DIR, "models", "the_scaler.pkl")
-# ENCODERS_PATH = "../models/the_label_encoders.pkl"
-ENCODERS_PATH = os.path.join(BASE_DIR, "models", "the_label_encoders.pkl")
-# MODEL_IMAGE_PATH = "../models/best_efficientnet_model_b.pth"
-MODEL_IMAGE_PATH = os.path.join(BASE_DIR, "models", "best_efficientnet_model_b.pth")
+MODEL_TABULAR_PATH = "../models/the_xgboost_bundle.pkl"
+MODEL_IMAGE_PATH = "../models/best_efficientnet_model_b.pth"
+
+# ----------------------------------------------------------
+# MODELO DOG vs CAT
+# ----------------------------------------------------------
+MODEL_DOGCAT_PATH = "../models/modelo_pesos.pth"
+
+# Transformación usada en test (sin augmentations)
+dogcat_transform = transforms.Compose([
+    transforms.Resize((128, 128)),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        [0.485, 0.456, 0.406],
+        [0.229, 0.224, 0.225]
+    )
+])
+    
+
+# ----------------------------------------------------------
+# DEFINICIÓN DEL MODELO DOG/CAT (CNN propia)
+# ----------------------------------------------------------
+class CNNImageClassifier(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv_layer_1 = nn.Sequential(
+            nn.Conv2d(3, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(128),
+            nn.MaxPool2d(2)
+        )
+        self.conv_layer_2 = nn.Sequential(
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm2d(128),
+            nn.MaxPool2d(2)
+        )
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(128*4*4, 2)
+        )
+
+    def forward(self, x):
+        x = self.conv_layer_1(x)  # 128x64x64
+        x = self.conv_layer_2(x)  # 128x32x32
+        x = self.conv_layer_2(x)  # 128x16x16
+        x = self.conv_layer_2(x)  # 128x8x8
+        x = self.conv_layer_2(x)  # 128x4x4
+        x = self.classifier(x)
+        return x
+
+# ----------------------------------------------------------
+# CARGA DE MODELO DOG vs CAT (state_dict)
+# ----------------------------------------------------------
+try:
+    dogcat_model = CNNImageClassifier().to(device)
+    dogcat_model.load_state_dict(torch.load(MODEL_DOGCAT_PATH, map_location=device))
+    dogcat_model.eval()
+
+    dogcat_classes = ["cat", "dog"]  # según tu dataset
+    print("🐾 Modelo Dog/Cat cargado correctamente (state_dict).")
+
+except Exception as e:
+    print(f"⚠️ Error al cargar Dog/Cat model: {e}")
+    dogcat_model = None
+    dogcat_classes = None
 
 # === Imagen (EfficientNet-B0 modificado) ===
 num_classes_full = 19
@@ -172,6 +226,12 @@ class ClinicalRequest(BaseModel):
 class ImageRequest(BaseModel):
     image: str  # base64 encoded image
     
+class ValidatePetResponse(BaseModel):
+    is_valid: bool
+    animal_type: Optional[str] = None
+    probability: Optional[float] = None
+    message: str
+    
 
 # ----------------------------------------------------------
 # FUNCIONES AUXILIARES 🧩
@@ -260,6 +320,56 @@ def generate_gradcam(model, input_tensor, target_class):
 @app.get("/")
 def root():
     return {"message": "VetAI Diagnostic API 🧠", "status": "running"}
+
+
+@app.post("/validate_pet", response_model=ValidatePetResponse)
+async def validate_pet(request: ImageRequest):
+    """
+    Validates if the image contains a dog or cat using the trained CNN model.
+    """
+    if dogcat_model is None:
+        raise HTTPException(status_code=500, detail="Dog/Cat model not loaded.")
+
+    try:
+        # Decode base64 image
+        image_data = request.image.split(",")[1] if "," in request.image else request.image
+        image_bytes = base64.b64decode(image_data)
+        image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+
+        # Preprocess
+        img_tensor = dogcat_transform(image).unsqueeze(0).to(device)
+
+        # Predict
+        with torch.no_grad():
+            outputs = dogcat_model(img_tensor)
+            probs = F.softmax(outputs, dim=1)[0]
+
+        top_prob, pred_idx = torch.max(probs, dim=0)
+        animal_type = dogcat_classes[pred_idx.item()]
+        probability = float(top_prob.item())
+
+        # Confidence threshold: requiere mínimo 60% para ser válido
+        if probability < 0.60:
+            return ValidatePetResponse(
+                is_valid=False,
+                message="Image is unclear — pet could not be confidently identified."
+            )
+
+        return ValidatePetResponse(
+            is_valid=True,
+            animal_type=animal_type,
+            probability=probability,
+            message=f"{animal_type.capitalize()} detected with {probability:.2f} confidence."
+        )
+
+    except Exception as e:
+        print(f"Error validating pet: {str(e)}")
+        return ValidatePetResponse(
+            is_valid=False,
+            message="Error processing image"
+        )
+
+
 
 # ----------------------------------------------------------
 # PREDICCIÓN CLÍNICA (TABULAR)
